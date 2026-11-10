@@ -20,10 +20,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             TeleopTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Greeting(
-                        name = "Android",
-                        modifier = Modifier.padding(innerPadding)
-                    )
+                    ControlScreen(modifier = Modifier.padding(innerPadding))
                 }
             }
         }
