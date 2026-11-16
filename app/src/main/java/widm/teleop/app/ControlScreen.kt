@@ -67,12 +67,15 @@ private val HoldOrange = Color(0xFFF59E0B)
 
 // 整頁：由上到下 ① 頂部列 ② 視角區 ③ 三個按鈕 ④ STOP
 @Composable
-fun ControlScreen(modifier: Modifier = Modifier) {   // ← 把 modifier 加回來
+fun ControlScreen(modifier: Modifier = Modifier) {
     var showConnection by remember { mutableStateOf(false) }
     var eStopped by remember { mutableStateOf(false) }
 
     Column(
-        modifier = modifier /* ...後面接你原本的 .fillMaxSize()、.background、.padding 那一串 */,
+        modifier = modifier
+            .fillMaxSize()
+            .background(PageBg)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
         Box(Modifier.weight(1f)) {
             // 第 1 層：原本的三樣東西
@@ -133,17 +136,21 @@ private fun ControlScreenPreview() {
 @Composable
 fun TopBar(modifier: Modifier = Modifier, eStopped: Boolean = false, onConnectedClick: () -> Unit) {
     Row(
-        modifier = modifier,
+        modifier = modifier
+            .fillMaxWidth()
+            .background(Color.White, RoundedCornerShape(12.dp))
+            .border(1.dp, BorderGray, RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // 藍色膠囊標籤
         Text(
-            text = if (eStopped) "E-stopped" else "Standby",                  // ← 改
+            text = if (eStopped) "E-stopped" else "Standby",
             color = Color.White,
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
             modifier = Modifier
-                .background(if (eStopped) EStopRed else StandbyBlue, CircleShape)  // ← 改
+                .background(if (eStopped) EStopRed else StandbyBlue, CircleShape)
                 .padding(horizontal = 12.dp, vertical = 4.dp)
         )
 
@@ -445,7 +452,7 @@ private fun EStopCard() {
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Icon(
-            imageVector = Icons.Outlined.PanTool,   // ← 換成跟 StopButton 同一個手掌圖示
+            imageVector = Icons.Outlined.PanTool,
             contentDescription = null,
             tint = EStopRed,
             modifier = Modifier.size(32.dp)
@@ -493,7 +500,7 @@ private fun HoldToReleaseButton(onRelease: () -> Unit, modifier: Modifier = Modi
         verticalAlignment = Alignment.CenterVertically
     ) {
         CircularProgressIndicator(
-            progress = { progress.value },     // ← 改成讀 Animatable 的值
+            progress = { progress.value },
             modifier = Modifier.size(20.dp),
             strokeWidth = 2.5.dp,
             color = HoldOrange,
