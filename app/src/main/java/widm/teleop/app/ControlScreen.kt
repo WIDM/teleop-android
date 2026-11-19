@@ -39,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -68,8 +69,8 @@ private val HoldOrange = Color(0xFFF59E0B)
 // 整頁：由上到下 ① 頂部列 ② 視角區 ③ 三個按鈕 ④ STOP
 @Composable
 fun ControlScreen(modifier: Modifier = Modifier) {
-    var showConnection by remember { mutableStateOf(false) }
-    var eStopped by remember { mutableStateOf(false) }
+    var showConnection by rememberSaveable { mutableStateOf(false) }
+    var eStopped by rememberSaveable { mutableStateOf(false) }
 
     Column(
         modifier = modifier
