@@ -45,7 +45,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
 import kotlinx.coroutines.launch
 
-// 先把顏色集中寫在這裡，之後要改色只改這邊
+// 顏色集中處，之後要改色只改這邊
 private val StandbyBlue = Color(0xFF2563EB)
 private val ConnectedGreen = Color(0xFF16A34A)
 private val TextDark = Color(0xFF111827)
@@ -80,10 +80,10 @@ fun ControlScreen(modifier: Modifier = Modifier) {
         Box(Modifier.weight(1f)) {
             // 第 1 層：原本的三樣東西
             Column(
-                modifier = Modifier.fillMaxSize().background(PageBg).padding(horizontal = 16.dp, vertical = 12.dp),
+                modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                TopBar(eStopped = eStopped, onConnectedClick = { showConnection = true })
+                TopBar(eStopped = eStopped, onConnectedClick = {  if (!eStopped) showConnection = true })
                 if (eStopped) {
                     EStopScreen(
                         onRelease = { eStopped = false },
@@ -485,7 +485,7 @@ private fun HoldToReleaseButton(onRelease: () -> Unit, modifier: Modifier = Modi
                                 animationSpec = tween(durationMillis = 1000, easing = LinearEasing)
                             )
                             // ③ 跑滿了才會執行到這裡
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            haptic.performHapticFeedback(HapticFeedbackType.Confirm)
                             onRelease()
                         }
                         // ② 在這裡等，直到手指放開
