@@ -1,5 +1,8 @@
 package widm.teleop.app
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -19,14 +22,31 @@ import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material.icons.filled.OpenWith
 import androidx.compose.material3.Icon
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.PanTool
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
+import kotlinx.coroutines.launch
 
-// 先把顏色集中寫在這裡，之後要改色只改這邊
+// 顏色集中處，之後要改色只改這邊
 private val StandbyBlue = Color(0xFF2563EB)
 private val ConnectedGreen = Color(0xFF16A34A)
 private val TextDark = Color(0xFF111827)
@@ -39,21 +59,71 @@ private val TextOnDark = Color(0xFFCBD5E1)
 private val StopRed = Color(0xFFDC2626)
 private val StopYellow = Color(0xFFFACC15)
 private val PageBg = Color(0xFFF5F7FA)
+private val PanelBg = Color(0xFFF8FAFC)
+private val CloseGray = Color(0xFFE2E8F0)
+private val EStopRed = Color(0xFFDC2626)
+private val EStopPink = Color(0xFFFEF2F2)
+private val EStopPinkBorder = Color(0xFFFCA5A5)
+private val HoldOrange = Color(0xFFF59E0B)
 
 // 整頁：由上到下 ① 頂部列 ② 視角區 ③ 三個按鈕 ④ STOP
 @Composable
 fun ControlScreen(modifier: Modifier = Modifier) {
+    var showConnection by rememberSaveable { mutableStateOf(false) }
+    var eStopped by rememberSaveable { mutableStateOf(false) }
+
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(PageBg)
             .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        TopBar()
-        CameraArea(Modifier.weight(1f))   // 佔掉剩下的高度
-        BottomButtons()
-        StopButton()
+        Box(Modifier.weight(1f)) {
+            // 第 1 層：原本的三樣東西
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                TopBar(eStopped = eStopped, onConnectedClick = {  if (!eStopped) showConnection = true })
+                if (eStopped) {
+                    EStopScreen(
+                        onRelease = { eStopped = false },
+                        modifier = Modifier.weight(1f)
+                    )
+                } else {
+                    CameraArea(Modifier.weight(1f))
+                    BottomButtons()
+                }
+            }
+
+            if (showConnection) {
+                // 第 2 層：變暗遮罩，點了關面板
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .background(Color.Black.copy(alpha = 0.35f))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null      // 點了不要出現水波紋
+                        ) { showConnection = false }
+                )
+                // 第 3 層：面板貼底
+                ConnectionPanel(
+                    onClose = { showConnection = false },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) { /* 吃掉點擊，什麼都不做 */ }
+                )
+            }
+        }
+
+        StopButton(onClick = {
+            showConnection = false   // 急停優先：順手關掉面板
+            eStopped = true
+        })
     }
 }
 
@@ -65,7 +135,7 @@ private fun ControlScreenPreview() {
 
 // ① 頂部列：左邊 Standby，右邊 Connected（假資料，寫死）
 @Composable
-fun TopBar(modifier: Modifier = Modifier) {
+fun TopBar(modifier: Modifier = Modifier, eStopped: Boolean = false, onConnectedClick: () -> Unit) {
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -76,24 +146,29 @@ fun TopBar(modifier: Modifier = Modifier) {
     ) {
         // 藍色膠囊標籤
         Text(
-            text = "Standby",
+            text = if (eStopped) "E-stopped" else "Standby",
             color = Color.White,
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
             modifier = Modifier
-                .background(StandbyBlue, CircleShape)
+                .background(if (eStopped) EStopRed else StandbyBlue, CircleShape)
                 .padding(horizontal = 12.dp, vertical = 4.dp)
         )
 
         // 把右邊的東西推到最右側
         Spacer(Modifier.weight(1f))
 
-        // 綠點 + Connected + 箭頭
-        Box(Modifier.size(8.dp).background(ConnectedGreen, CircleShape))
-        Spacer(Modifier.width(8.dp))
-        Text("Connected", color = TextDark, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-        Spacer(Modifier.width(12.dp))
-        Text("›", color = TextDark, fontSize = 18.sp)
+        // 綠點 + Connected + 箭頭：包進一個可以點的小 Row
+        Row(
+            modifier = Modifier.clickable { onConnectedClick() },
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(Modifier.size(8.dp).background(ConnectedGreen, CircleShape))
+            Spacer(Modifier.width(8.dp))
+            Text("Connected", color = TextDark, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Spacer(Modifier.width(12.dp))
+            Text("›", color = TextDark, fontSize = 18.sp)
+        }
     }
 }
 
@@ -101,7 +176,7 @@ fun TopBar(modifier: Modifier = Modifier) {
 @Preview(showBackground = true, backgroundColor = 0xFFF5F7FA)
 @Composable
 private fun TopBarPreview() {
-    TopBar(Modifier.padding(16.dp))
+    TopBar(Modifier.padding(16.dp), onConnectedClick = {})
 }
 
 // ② 視角區：深藍底，上面貼 4 樣東西
@@ -241,7 +316,7 @@ private fun ActionButton(
 
 // ④ STOP：黃色外框 + 紅色大按鈕（急停功能之後的票再做）
 @Composable
-fun StopButton(modifier: Modifier = Modifier) {
+fun StopButton(modifier: Modifier = Modifier, onClick: () -> Unit) {
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -249,7 +324,7 @@ fun StopButton(modifier: Modifier = Modifier) {
             .padding(8.dp)
     ) {
         Button(
-            onClick = { /* A-13 只做外觀 */ },
+            onClick = onClick,
             modifier = Modifier.fillMaxWidth().height(72.dp),
             shape = RoundedCornerShape(10.dp),
             colors = ButtonDefaults.buttonColors(
@@ -269,6 +344,178 @@ fun StopButton(modifier: Modifier = Modifier) {
 private fun BottomPreview() {
     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         BottomButtons()
-        StopButton()
+        StopButton(onClick = {})
     }
+}
+
+// ③ Connection 面板（假資料，寫死）
+@Composable
+fun ConnectionPanel(onClose: () -> Unit, modifier: Modifier = Modifier) {
+    var serverAddress by remember { mutableStateOf("192.168.x.x:8765") }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(PanelBg, RoundedCornerShape(16.dp))
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text("Connection", color = TextDark, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+
+        StatusRow(label = "Latency", value = "80 ms, normal")
+        StatusRow(label = "Robot heartbeat", value = "Received just now")
+
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Server address", color = TextMuted, fontSize = 12.sp)
+            OutlinedTextField(
+                value = serverAddress,
+                onValueChange = { serverAddress = it },
+                singleLine = true,
+                shape = RoundedCornerShape(8.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = TextMuted,
+                    unfocusedBorderColor = CloseGray,
+                    focusedContainerColor = Color.White,
+                    unfocusedContainerColor = Color.White
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { /* 這期不做事 */ }
+                .padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Change server", color = TextDark, fontSize = 15.sp,
+                fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+            Text("›", color = TextDark, fontSize = 18.sp)
+        }
+
+        Button(
+            onClick = onClose,
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+            shape = RoundedCornerShape(10.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = CloseGray,
+                contentColor = TextDark
+            )
+        ) {
+            Text("Close", fontSize = 16.sp)
+        }
+    }
+}
+
+// 綠點 + 粗體標籤 + 灰色說明
+@Composable
+private fun StatusRow(label: String, value: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(8.dp).background(ConnectedGreen, CircleShape))
+        Spacer(Modifier.width(10.dp))
+        Text(label, color = TextDark, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.width(8.dp))
+        Text(value, color = TextMuted, fontSize = 14.sp)
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFFF5F7FA)
+@Composable
+private fun ConnectionPanelPreview() {
+    ConnectionPanel(onClose = {}, modifier = Modifier.padding(16.dp))
+}
+
+// ④ 急停頁：取代 CameraArea + BottomButtons
+@Composable
+fun EStopScreen(onRelease: () -> Unit, modifier: Modifier = Modifier) {
+    Column(modifier = modifier.fillMaxSize()) {
+        EStopCard()
+        Spacer(Modifier.weight(1f))
+        HoldToReleaseButton(onRelease = onRelease)    // 先寫死 30%，下一步改成真的
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Release early to cancel. A short buzz confirms release.",
+            color = TextMuted, fontSize = 12.sp
+        )
+    }
+}
+
+@Composable
+private fun EStopCard() {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(EStopPink, RoundedCornerShape(12.dp))
+            .border(1.dp, EStopPinkBorder, RoundedCornerShape(12.dp))
+            .padding(vertical = 20.dp, horizontal = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.PanTool,
+            contentDescription = null,
+            tint = EStopRed,
+            modifier = Modifier.size(32.dp)
+        )
+        Text("E-stopped", color = EStopRed, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+        Text("Arm stopped. All inputs are locked.", color = TextDark, fontSize = 15.sp)
+        Text("Volume keys and on-screen controls are ignored.", color = TextMuted, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun HoldToReleaseButton(onRelease: () -> Unit, modifier: Modifier = Modifier) {
+    val progress = remember { Animatable(0f) }      // 0f ~ 1f，會動的數字
+    val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .background(Color.White, RoundedCornerShape(10.dp))
+            .border(1.dp, CloseGray, RoundedCornerShape(10.dp))
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = {
+                        // ① 手指按下：開始跑 1 秒的進度
+                        val job = scope.launch {
+                            progress.animateTo(
+                                targetValue = 1f,
+                                animationSpec = tween(durationMillis = 1000, easing = LinearEasing)
+                            )
+                            // ③ 跑滿了才會執行到這裡
+                            haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                            onRelease()
+                        }
+                        // ② 在這裡等，直到手指放開
+                        tryAwaitRelease()
+                        // ④ 手指放開了：如果還沒跑完就取消，進度歸零
+                        job.cancel()
+                        progress.snapTo(0f)
+                    }
+                )
+            },
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        CircularProgressIndicator(
+            progress = { progress.value },
+            modifier = Modifier.size(20.dp),
+            strokeWidth = 2.5.dp,
+            color = HoldOrange,
+            trackColor = CloseGray
+        )
+        Spacer(Modifier.width(10.dp))
+        Icon(Icons.Outlined.Lock, contentDescription = null, tint = TextDark, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(6.dp))
+        Text("Hold 1s to release", color = TextDark, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFFF5F7FA, heightDp = 600)
+@Composable
+private fun EStopScreenPreview() {
+    EStopScreen(onRelease = {}, modifier = Modifier.padding(16.dp))
 }
