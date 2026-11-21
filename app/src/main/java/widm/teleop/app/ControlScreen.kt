@@ -49,6 +49,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.material.icons.rounded.VerticalAlignTop
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextAlign
 
 // 顏色集中處，之後要改色只改這邊
 private val StandbyBlue = Color(0xFF2563EB)
@@ -71,11 +72,18 @@ private val EStopPinkBorder = Color(0xFFFCA5A5)
 private val HoldOrange = Color(0xFFF59E0B)
 private val PadText = Color(0xFF0F172A)
 
-// 整頁：由上到下 ① 頂部列 ② 視角區 ③ 三個按鈕 ④ STOP
+// 中間區域的操作模式
+enum class ControlMode(val label: String) {
+    Buttons("Buttons"),
+    Camera("Camera")
+}
+
+// 分頁：由上到下 ① 頂部列 ② 按鈕模式／視角區 ③ 按鈕 ④ STOP
 @Composable
 fun ControlScreen(modifier: Modifier = Modifier) {
     var showConnection by rememberSaveable { mutableStateOf(false) }
     var eStopped by rememberSaveable { mutableStateOf(false) }
+    var mode by rememberSaveable { mutableStateOf(ControlMode.Buttons) }
     val link = remember { TeleopLink() }
 
     DisposableEffect(link) {
@@ -105,7 +113,11 @@ fun ControlScreen(modifier: Modifier = Modifier) {
                         modifier = Modifier.weight(1f)
                     )
                 } else {
-                    CameraArea(Modifier.weight(1f))
+                    ModeTabs(selected = mode, onSelect = { mode = it })
+                    when (mode) {
+                        ControlMode.Buttons -> ButtonPad(Modifier.weight(1f))
+                        ControlMode.Camera -> CameraArea(Modifier.weight(1f))
+                    }
                     BottomButtons()
                 }
             }
@@ -204,6 +216,41 @@ fun TopBar(
 @Composable
 private fun TopBarPreview() {
     TopBar(Modifier.padding(16.dp), linkStatus = LinkStatus.Connected, onConnectedClick = {})
+}
+
+// 分頁：切換中間區域的模式
+@Composable
+private fun ModeTabs(
+    selected: ControlMode,
+    onSelect: (ControlMode) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(PlateBg, RoundedCornerShape(10.dp))
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        ControlMode.entries.forEach { m ->
+            val isSelected = m == selected
+            Text(
+                text = m.label,
+                color = if (isSelected) TextDark else TextMuted,
+                fontSize = 14.sp,
+                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .weight(1f)
+                    .background(
+                        if (isSelected) Color.White else Color.Transparent,
+                        RoundedCornerShape(8.dp)
+                    )
+                    .clickable { onSelect(m) }
+                    .padding(vertical = 8.dp)
+            )
+        }
+    }
 }
 
 // ② 視角區：深藍底，上面貼 4 樣東西
@@ -331,6 +378,19 @@ private fun HintCard(modifier: Modifier = Modifier) {
 @Composable
 private fun CameraAreaPreview() {
     CameraArea(Modifier.padding(16.dp).height(600.dp))
+}
+
+// 按鈕模式：十字、Up/Down、下排四顆（下一步再排）
+@Composable
+fun ButtonPad(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(CameraBg, RoundedCornerShape(12.dp)),
+        contentAlignment = Alignment.Center
+    ) {
+        Text("Button pad", color = TextOnDark)
+    }
 }
 
 // ③ 底部三個按鈕（A-13 只做外觀，按了沒反應）
