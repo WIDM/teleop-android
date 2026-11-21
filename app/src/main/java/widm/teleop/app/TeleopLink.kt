@@ -20,7 +20,10 @@ private const val TAG = "TeleopLink"
 private const val TICK_MS = 500L              // send `test` twice a second
 private const val READY_TIMEOUT_MS = 5_000L   // welcome + first state within 5 s
 private const val SILENCE_TIMEOUT_MS = 3_000L // 3 s of silence = link lost
-private const val KEEPALIVE_MS = 133L         // server ends a jog 750 ms after the last keepalive
+private const val KEEPALIVE_MS = 133L         // server ends a hold 750 ms after the last keepalive
+private const val RESET_RETRY_MS = 300L       // one retry after `busy`
+private const val RESET_TIMEOUT_MS = 10_000L  // give up waiting for the reset's answer
+private const val RESET_FAILED_SHOW_MS = 3_000L // how long the top bar says "Not reset"
 
 enum class LinkStatus { Disconnected, Connecting, Connected }
 
@@ -55,6 +58,18 @@ class TeleopLink {
     private var holdStartSeq = 0L
 
     private var stopType = "jog_stop"   // 夾爪是 "gripper_jog_stop"
+
+    var resetting by mutableStateOf(false)   // reset_scene sent, answer not back yet
+        private set
+    var resetFailed by mutableStateOf(false)  // the last reset did not happen; shown for 3 s
+        private set
+
+    private val clearResetFailed = Runnable { resetFailed = false }
+    private var resetSeq = 0L
+    private var resetRetried = false
+
+    private val resetRetry = Runnable { if (resetting) sendReset() }
+    private val resetTimeout = Runnable { if (resetting) failReset("no answer within 10 s") }
 
     private val keepalive = object : Runnable {
         override fun run() {
@@ -107,7 +122,7 @@ class TeleopLink {
 
     /** Start a hold: send [startType] with [payload], keep it alive, end it later with [stop]. */
     private fun beginHold(key: String, startType: String, payload: JSONObject, stop: String) {
-        if (status != LinkStatus.Connected || holding) return
+        if (status != LinkStatus.Connected || holding || resetting) return
         holding = true
         holdKey = key
         stopType = stop
@@ -152,12 +167,56 @@ class TeleopLink {
     /** STOP: every press sends `estop`, even when already stopped. The server ends any running hold (jog or gripper) itself. */
     fun estop() {
         endHold()
+        endReset()
         send("estop")
     }
 
     /** Hold-to-release finished: ask the server to release the stop and keep the scene. */
     fun estopReset() {
         send("estop_reset")
+    }
+
+    /** Top band held 2 s: put the scene back as it started. */
+    fun resetScene() {
+        if (status != LinkStatus.Connected || holding || resetting) return
+        resetFailed = false
+        mainHandler.removeCallbacks(clearResetFailed)
+        resetting = true
+        resetRetried = false
+        sendReset()
+        mainHandler.postDelayed(resetTimeout, RESET_TIMEOUT_MS)
+    }
+
+    private fun sendReset() {
+        send("reset_scene")
+        resetSeq = seq
+    }
+
+    private fun onResetAck(ackStatus: String, reason: String) {
+        if (ackStatus == "ok") {
+            endReset()
+            return
+        }
+        if (reason == "busy" && !resetRetried) {
+            resetRetried = true
+            mainHandler.postDelayed(resetRetry, RESET_RETRY_MS)
+            return
+        }
+        failReset(reason)
+    }
+
+    private fun endReset() {
+        resetting = false
+        mainHandler.removeCallbacks(resetRetry)
+        mainHandler.removeCallbacks(resetTimeout)
+    }
+
+    private fun failReset(why: String) {
+        Log.w(TAG, "scene not reset: $why")
+        endReset()
+        resetFailed = true
+        mainHandler.removeCallbacks(clearResetFailed)
+        mainHandler.postDelayed(clearResetFailed, RESET_FAILED_SHOW_MS)
     }
 
     private fun endHold() {
@@ -193,12 +252,13 @@ class TeleopLink {
             }
             // the echo carries our own send time
             "test" -> latencyMs = System.currentTimeMillis() - msg.optLong("ts")
-            // The server ended our hold by itself (busy, estop, watchdog): stop keepalives.
+            // An ack names one of our messages: a hold's start, or the reset.
             "ack" -> {
                 val p = msg.optJSONObject("payload") ?: return
-                if (holding && p.optLong("seq") == holdStartSeq && p.optString("status") == "rejected") {
-                    endHold()
-                }
+                val ackSeq = p.optLong("seq")
+                val ackStatus = p.optString("status")
+                if (holding && ackSeq == holdStartSeq && ackStatus == "rejected") endHold()
+                if (resetting && ackSeq == resetSeq) onResetAck(ackStatus, p.optString("reason"))
             }
         }
     }
@@ -249,6 +309,7 @@ class TeleopLink {
     
     private fun resetLinkState() {
         endHold()
+        endReset()
         status = LinkStatus.Disconnected
         latencyMs = null
         stateAgeMs = null

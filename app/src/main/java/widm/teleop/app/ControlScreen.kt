@@ -112,7 +112,15 @@ fun ControlScreen(modifier: Modifier = Modifier) {
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                TopBar(eStopped = eStopped, linkStatus = link.status, onConnectedClick = {  if (!eStopped) showConnection = true })
+                TopBar(
+                    eStopped = eStopped,
+                    linkStatus = link.status,
+                    resetting = link.resetting,
+                    resetFailed = link.resetFailed,
+                    canReset = !eStopped && link.status == LinkStatus.Connected && !link.holding && !link.resetting,
+                    onReset = { link.resetScene() },
+                    onConnectedClick = { if (!eStopped) showConnection = true }
+                )
                 if (eStopped) {
                     EStopScreen(
                         onRelease = {
@@ -183,9 +191,17 @@ private fun ControlScreenPreview() {
 fun TopBar(
     modifier: Modifier = Modifier,
     eStopped: Boolean = false,
+    resetting: Boolean,
+    resetFailed: Boolean,
+    canReset: Boolean,
     linkStatus: LinkStatus,
+    onReset: () -> Unit,
     onConnectedClick: () -> Unit
 ) {
+    val progress = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
+    val currentOnReset by rememberUpdatedState(onReset)
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -194,19 +210,55 @@ fun TopBar(
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 藍色膠囊標籤
-        Text(
-            text = if (eStopped) "E-stopped" else "Standby",
-            color = Color.White,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium,
+        // 左半邊：長按 2 秒重置場景（右邊 Connected 點一下還是開面板）
+        Row(
             modifier = Modifier
-                .background(if (eStopped) EStopRed else StandbyBlue, CircleShape)
-                .padding(horizontal = 12.dp, vertical = 4.dp)
-        )
-
-        // 把右邊的東西推到最右側
-        Spacer(Modifier.weight(1f))
+                .weight(1f)
+                .pointerInput(canReset) {
+                    if (!canReset) return@pointerInput
+                    detectTapGestures(onPress = {
+                        val job = scope.launch {
+                            progress.animateTo(1f, tween(durationMillis = 2000, easing = LinearEasing))
+                            haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                            currentOnReset()
+                        }
+                        try {
+                            tryAwaitRelease()
+                        } finally {
+                            job.cancel()
+                            scope.launch { progress.snapTo(0f) }
+                        }
+                    })
+                },
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val (pillText, pillColor) = when {
+                eStopped -> "E-stopped" to EStopRed
+                resetting -> "Resetting…" to HoldOrange
+                progress.value > 0f -> "Hold to reset" to StandbyBlue
+                resetFailed -> "Not reset" to EStopRed
+                else -> "Standby" to StandbyBlue
+            }
+            Text(
+                text = pillText,
+                color = Color.White,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier
+                    .background(pillColor, CircleShape)
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+            )
+            if (progress.value > 0f) {
+                Spacer(Modifier.width(8.dp))
+                CircularProgressIndicator(
+                    progress = { progress.value },
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.5.dp,
+                    color = StandbyBlue,
+                    trackColor = CloseGray
+                )
+            }
+        }
 
         // 狀態點 + 連線狀態 + 箭頭
         Row(
@@ -231,7 +283,15 @@ fun TopBar(
 @Preview(showBackground = true, backgroundColor = 0xFFF5F7FA)
 @Composable
 private fun TopBarPreview() {
-    TopBar(Modifier.padding(16.dp), linkStatus = LinkStatus.Connected, onConnectedClick = {})
+    TopBar(
+        Modifier.padding(16.dp),
+        resetting = false,
+        resetFailed = false,
+        canReset = true,
+        linkStatus = LinkStatus.Connected,
+        onReset = {},
+        onConnectedClick = {}
+    )
 }
 
 // 分頁：切換中間區域的模式
