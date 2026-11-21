@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.VolumeUp
+import androidx.compose.material.icons.filled.OpenWith
 import androidx.compose.material3.Icon
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -29,7 +30,6 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.PanTool
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.rounded.VerticalAlignTop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -40,16 +40,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.graphics.vector.ImageVector
 import kotlinx.coroutines.launch
-
-
 
 // 顏色集中處，之後要改色只改這邊
 private val StandbyBlue = Color(0xFF2563EB)
@@ -57,6 +53,7 @@ private val ConnectedGreen = Color(0xFF16A34A)
 private val TextDark = Color(0xFF111827)
 private val BorderGray = Color(0xFFE5E7EB)
 private val CameraBg = Color(0xFF1E293B)
+private val BaseStripBg = Color(0xFF0F172A)
 private val PlateBg = Color(0xFFE2E8F0)
 private val TextMuted = Color(0xFF64748B)
 private val TextOnDark = Color(0xFFCBD5E1)
@@ -69,7 +66,6 @@ private val EStopRed = Color(0xFFDC2626)
 private val EStopPink = Color(0xFFFEF2F2)
 private val EStopPinkBorder = Color(0xFFFCA5A5)
 private val HoldOrange = Color(0xFFF59E0B)
-private val PadText = Color(0xFF0F172A)
 
 // 整頁：由上到下 ① 頂部列 ② 視角區 ③ 三個按鈕 ④ STOP
 @Composable
@@ -105,12 +101,7 @@ fun ControlScreen(modifier: Modifier = Modifier) {
                         modifier = Modifier.weight(1f)
                     )
                 } else {
-                    CameraArea(
-                        modifier = Modifier.weight(1f),
-                        jogging = link.jogging,
-                        onJogPress = { link.jogStart("z", 1) },
-                        onJogRelease = { link.jogStop() }
-                    )
+                    CameraArea(Modifier.weight(1f))
                     BottomButtons()
                 }
             }
@@ -213,12 +204,7 @@ private fun TopBarPreview() {
 
 // ② 視角區：深藍底，上面貼 4 樣東西
 @Composable
-fun CameraArea(
-    modifier: Modifier = Modifier,
-    jogging: Boolean,
-    onJogPress: () -> Unit,
-    onJogRelease: () -> Unit
-) {
+fun CameraArea(modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -226,56 +212,8 @@ fun CameraArea(
     ) {
         GripperPlate(Modifier.align(Alignment.TopCenter).padding(top = 12.dp))
         AimMark(Modifier.align(Alignment.Center))
+        BaseStrip(Modifier.align(Alignment.TopEnd).padding(top = 72.dp, end = 10.dp))
         HintCard(Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp))
-        JogButton(
-            label = "Up",
-            icon = Icons.Rounded.VerticalAlignTop,
-            active = jogging,
-            onPress = onJogPress,
-            onRelease = onJogRelease,
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = 72.dp, end = 16.dp)
-        )
-    }
-}
-
-// 按住才動的方向鍵（v3 按鈕模式的樣式）：按下送 start，放開送 stop
-@Composable
-private fun JogButton(
-    label: String,
-    icon: ImageVector,
-    active: Boolean,
-    onPress: () -> Unit,
-    onRelease: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val currentOnPress by rememberUpdatedState(onPress)
-    val currentOnRelease by rememberUpdatedState(onRelease)
-    val contentColor = if (active) Color.White else PadText
-    Column(
-        modifier = modifier
-            .size(width = 96.dp, height = 128.dp)
-            .background(if (active) StandbyBlue else Color.White, RoundedCornerShape(12.dp))
-            .border(
-                width = 1.5.dp,
-                color = if (active) Color.Transparent else PadText.copy(alpha = 0.4f),
-                shape = RoundedCornerShape(12.dp)
-            )
-            .pointerInput(Unit) {
-                detectTapGestures(onPress = {
-                    currentOnPress()
-                    try {
-                        tryAwaitRelease()
-                    } finally {
-                        currentOnRelease()
-                    }
-                })
-            },
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Icon(icon, contentDescription = null, tint = contentColor, modifier = Modifier.size(24.dp))
-        Spacer(Modifier.height(6.dp))
-        Text(label, color = contentColor, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -302,6 +240,25 @@ private fun AimMark(modifier: Modifier = Modifier) {
     }
 }
 
+// 右側：Base 直條（只有左邊兩個角是圓的）
+@Composable
+private fun BaseStrip(modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp)
+    Column(
+        modifier = modifier
+            .width(72.dp)
+            .fillMaxHeight(0.75f)
+            .background(BaseStripBg, shape)
+            .border(1.dp, Color(0x80FFFFFF), shape),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(Icons.Filled.OpenWith, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.height(8.dp))
+        Text("Base", color = Color.White, fontSize = 16.sp)
+    }
+}
+
 // 下方：音量鍵提示卡（只是文字，不接音量鍵）
 @Composable
 private fun HintCard(modifier: Modifier = Modifier) {
@@ -321,6 +278,7 @@ private fun HintCard(modifier: Modifier = Modifier) {
         Column {
             Text("Hold vol+: move arm", color = Color.White, fontSize = 13.sp)
             Text("Press vol−: gripper", color = Color.White, fontSize = 13.sp)
+            Text("Hold right edge: move base", color = Color.White, fontSize = 13.sp)
         }
     }
 }
@@ -328,12 +286,7 @@ private fun HintCard(modifier: Modifier = Modifier) {
 @Preview(showBackground = true, backgroundColor = 0xFFF5F7FA, widthDp = 380)
 @Composable
 private fun CameraAreaPreview() {
-    CameraArea(
-        modifier = Modifier.padding(16.dp).height(600.dp),
-        jogging = false,
-        onJogPress = {},
-        onJogRelease = {}
-    )
+    CameraArea(Modifier.padding(16.dp).height(600.dp))
 }
 
 // ③ 底部三個按鈕（A-13 只做外觀，按了沒反應）
