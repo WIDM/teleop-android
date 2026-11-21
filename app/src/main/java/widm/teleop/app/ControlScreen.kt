@@ -98,7 +98,10 @@ fun ControlScreen(modifier: Modifier = Modifier) {
                 TopBar(eStopped = eStopped, linkStatus = link.status, onConnectedClick = {  if (!eStopped) showConnection = true })
                 if (eStopped) {
                     EStopScreen(
-                        onRelease = { eStopped = false },
+                        onRelease = {
+                            link.estopReset()
+                            eStopped = false
+                        },
                         modifier = Modifier.weight(1f)
                     )
                 } else {
@@ -140,6 +143,7 @@ fun ControlScreen(modifier: Modifier = Modifier) {
 
         StopButton(onClick = {
             showConnection = false   // 急停優先：順手關掉面板
+            link.estop()
             eStopped = true
         })
     }

@@ -111,6 +111,17 @@ class TeleopLink {
         send("jog_stop")
     }
 
+    /** STOP: every press sends `estop`, even when already stopped. The server ends any running jog itself. */
+    fun estop() {
+        endJog()
+        send("estop")
+    }
+
+    /** Hold-to-release finished: ask the server to release the stop and keep the scene. */
+    fun estopReset() {
+        send("estop_reset")
+    }
+
     private fun endJog() {
         jogging = false
         mainHandler.removeCallbacks(keepalive)
