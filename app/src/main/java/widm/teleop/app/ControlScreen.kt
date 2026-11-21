@@ -107,8 +107,8 @@ fun ControlScreen(modifier: Modifier = Modifier) {
                 } else {
                     CameraArea(
                         modifier = Modifier.weight(1f),
-                        jogging = link.jogging,
-                        onJogPress = { link.jogStart("z", 1) },
+                        jogKey = link.jogKey,
+                        onJogPress = { axis, dir -> link.jogStart(axis, dir) },
                         onJogRelease = { link.jogStop() }
                     )
                     BottomButtons()
@@ -215,8 +215,8 @@ private fun TopBarPreview() {
 @Composable
 fun CameraArea(
     modifier: Modifier = Modifier,
-    jogging: Boolean,
-    onJogPress: () -> Unit,
+    jogKey: String?,
+    onJogPress: (axis: String, dir: Int) -> Unit,
     onJogRelease: () -> Unit
 ) {
     Box(
@@ -230,10 +230,13 @@ fun CameraArea(
         JogButton(
             label = "Up",
             icon = Icons.Rounded.VerticalAlignTop,
-            active = jogging,
-            onPress = onJogPress,
+            active = jogKey == "z+",
+            onPress = { onJogPress("z", 1) },
             onRelease = onJogRelease,
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = 72.dp, end = 16.dp)
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 72.dp, end = 16.dp)
+                .size(width = 96.dp, height = 128.dp)
         )
     }
 }
@@ -253,7 +256,6 @@ private fun JogButton(
     val contentColor = if (active) Color.White else PadText
     Column(
         modifier = modifier
-            .size(width = 96.dp, height = 128.dp)
             .background(if (active) StandbyBlue else Color.White, RoundedCornerShape(12.dp))
             .border(
                 width = 1.5.dp,
@@ -330,8 +332,8 @@ private fun HintCard(modifier: Modifier = Modifier) {
 private fun CameraAreaPreview() {
     CameraArea(
         modifier = Modifier.padding(16.dp).height(600.dp),
-        jogging = false,
-        onJogPress = {},
+        jogKey = null,
+        onJogPress = { _, _ -> },
         onJogRelease = {}
     )
 }

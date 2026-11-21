@@ -44,6 +44,8 @@ class TeleopLink {
 
     var jogging by mutableStateOf(false)
         private set
+    var jogKey by mutableStateOf<String?>(null)   // 正在動的是哪一顆，例如 "z+"；沒在動就是 null
+        private set
     private var jogStartSeq = 0L
 
     private val keepalive = object : Runnable {
@@ -99,6 +101,7 @@ class TeleopLink {
     fun jogStart(axis: String, dir: Int) {
         if (status != LinkStatus.Connected || jogging) return
         jogging = true
+        jogKey = axis + if (dir > 0) "+" else "-"
         send("jog_start", JSONObject().put("axis", axis).put("dir", dir).put("step", "fine"))
         jogStartSeq = seq
         mainHandler.postDelayed(keepalive, KEEPALIVE_MS)
@@ -124,6 +127,7 @@ class TeleopLink {
 
     private fun endJog() {
         jogging = false
+        jogKey = null
         mainHandler.removeCallbacks(keepalive)
     }
 
