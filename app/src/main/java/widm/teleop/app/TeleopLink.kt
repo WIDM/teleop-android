@@ -20,6 +20,7 @@ private const val TAG = "TeleopLink"
 private const val TICK_MS = 500L              // send `test` twice a second
 private const val READY_TIMEOUT_MS = 5_000L   // welcome + first state within 5 s
 private const val SILENCE_TIMEOUT_MS = 3_000L // 3 s of silence = link lost
+private const val KEEPALIVE_MS = 133L         // server ends a jog 750 ms after the last keepalive
 
 enum class LinkStatus { Disconnected, Connecting, Connected }
 
@@ -39,7 +40,19 @@ class TeleopLink {
     private var gotWelcome = false
     private var connectStartedAt = 0L  
     private var lastHeardAt = 0L       
-    private var lastStateAt = 0L       
+    private var lastStateAt = 0L
+
+    var jogging by mutableStateOf(false)
+        private set
+    private var jogStartSeq = 0L
+
+    private val keepalive = object : Runnable {
+        override fun run() {
+            if (!jogging) return
+            send("jog_keepalive")
+            mainHandler.postDelayed(this, KEEPALIVE_MS)
+        }
+    }
 
     // runs every TICK_MS while a socket is open
     private val tick = object : Runnable {
@@ -62,10 +75,11 @@ class TeleopLink {
     }
 
     fun close() {
-        mainHandler.removeCallbacks(tick)  
+        jogStop()
+        mainHandler.removeCallbacks(tick)
         socket?.close(1000, "bye")
         socket = null
-        resetLinkState()                   
+        resetLinkState()
     }
 
     fun send(type: String, payload: JSONObject = JSONObject()) {
@@ -78,7 +92,28 @@ class TeleopLink {
             .put("seq", seq)
             .put("payload", payload)
         ws.send(msg.toString())
-        if (type != "test") Log.d(TAG, "-> $msg")  // don't flood Logcat with tests
+        if (type != "test" && type != "jog_keepalive") Log.d(TAG, "-> $msg")
+    }
+
+    /** Press: start moving along [axis] ("x", "y", "z") in direction [dir] (+1 or -1). */
+    fun jogStart(axis: String, dir: Int) {
+        if (status != LinkStatus.Connected || jogging) return
+        jogging = true
+        send("jog_start", JSONObject().put("axis", axis).put("dir", dir).put("step", "fine"))
+        jogStartSeq = seq
+        mainHandler.postDelayed(keepalive, KEEPALIVE_MS)
+    }
+
+    /** Release: stop moving. */
+    fun jogStop() {
+        if (!jogging) return
+        endJog()
+        send("jog_stop")
+    }
+
+    private fun endJog() {
+        jogging = false
+        mainHandler.removeCallbacks(keepalive)
     }
 
     
@@ -108,6 +143,13 @@ class TeleopLink {
             }
             // the echo carries our own send time
             "test" -> latencyMs = System.currentTimeMillis() - msg.optLong("ts")
+            // The server ended our jog by itself (busy, estop, watchdog): stop keepalives.
+            "ack" -> {
+                val p = msg.optJSONObject("payload") ?: return
+                if (jogging && p.optLong("seq") == jogStartSeq && p.optString("status") == "rejected") {
+                    endJog()
+                }
+            }
         }
     }
 
@@ -156,6 +198,7 @@ class TeleopLink {
 
     
     private fun resetLinkState() {
+        endJog()
         status = LinkStatus.Disconnected
         latencyMs = null
         stateAgeMs = null
