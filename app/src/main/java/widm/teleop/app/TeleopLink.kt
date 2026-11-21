@@ -27,6 +27,9 @@ enum class LinkStatus { Disconnected, Connecting, Connected }
 /** 方向鍵的名字："z" + 1 → "z+"。TeleopLink 和畫面用同一個規則。 */
 fun jogKeyOf(axis: String, dir: Int) = axis + if (dir > 0) "+" else "-"
 
+/** 夾爪鍵的名字："open" → "gripper-open"。 */
+fun gripperKeyOf(action: String) = "gripper-$action"
+
 /** Talks to the teleop server over one WebSocket. All work runs on the main thread. */
 class TeleopLink {
     var status by mutableStateOf(LinkStatus.Disconnected)
@@ -45,15 +48,17 @@ class TeleopLink {
     private var lastHeardAt = 0L       
     private var lastStateAt = 0L
 
-    var jogging by mutableStateOf(false)
+    var holding by mutableStateOf(false)
         private set
-    var jogKey by mutableStateOf<String?>(null)   // 正在動的是哪一顆，例如 "z+"；沒在動就是 null
+    var holdKey by mutableStateOf<String?>(null)   // 正在動的是哪一顆，例如 "z+"；沒在動就是 null
         private set
-    private var jogStartSeq = 0L
+    private var holdStartSeq = 0L
+
+    private var stopType = "jog_stop"   // 夾爪是 "gripper_jog_stop"
 
     private val keepalive = object : Runnable {
         override fun run() {
-            if (!jogging) return
+            if (!holding) return
             send("jog_keepalive")
             mainHandler.postDelayed(this, KEEPALIVE_MS)
         }
@@ -80,7 +85,7 @@ class TeleopLink {
     }
 
     fun close() {
-        jogStop()
+        stopHold()
         mainHandler.removeCallbacks(tick)
         socket?.close(1000, "bye")
         socket = null
@@ -100,31 +105,53 @@ class TeleopLink {
         if (type != "test" && type != "jog_keepalive") Log.d(TAG, "-> $msg")
     }
 
-    /** Press: start moving along [axis] ("x", "y", "z") in direction [dir] (+1 or -1). */
-    fun jogStart(axis: String, dir: Int) {
-        if (status != LinkStatus.Connected || jogging) return
-        jogging = true
-        jogKey = jogKeyOf(axis, dir)
-        send("jog_start", JSONObject().put("axis", axis).put("dir", dir).put("step", "fine"))
-        jogStartSeq = seq
+    /** Start a hold: send [startType] with [payload], keep it alive, end it later with [stop]. */
+    private fun beginHold(key: String, startType: String, payload: JSONObject, stop: String) {
+        if (status != LinkStatus.Connected || holding) return
+        holding = true
+        holdKey = key
+        stopType = stop
+        send(startType, payload)
+        holdStartSeq = seq
         mainHandler.postDelayed(keepalive, KEEPALIVE_MS)
     }
 
-    /** Release: stop moving. */
-    fun jogStop() {
-        if (!jogging) return
-        endJog()
-        send("jog_stop")
+    /** Press: start moving along [axis] ("x", "y", "z") in direction [dir] (+1 or -1). */
+    fun jogStart(axis: String, dir: Int) = beginHold(
+        key = jogKeyOf(axis, dir),
+        startType = "jog_start",
+        payload = JSONObject().put("axis", axis).put("dir", dir).put("step", "fine"),
+        stop = "jog_stop"
+    )
+
+    /** Release: stop the running hold (jog or gripper). */
+    fun stopHold() {
+        if (!holding) return
+        endHold()
+        send(stopType)
     }
 
     /** 放開某一顆鍵：只有它就是正在動的那顆，才停。 */
     fun jogRelease(axis: String, dir: Int) {
-        if (jogKey == jogKeyOf(axis, dir)) jogStop()
+        if (holdKey == jogKeyOf(axis, dir)) stopHold()
     }
 
-    /** STOP: every press sends `estop`, even when already stopped. The server ends any running jog itself. */
+    /** Press Open/Close: move the jaws until release. [action] is "open" or "close". */
+    fun gripperStart(action: String) = beginHold(
+        key = gripperKeyOf(action),
+        startType = "gripper_jog_start",
+        payload = JSONObject().put("action", action).put("step", "coarse"),
+        stop = "gripper_jog_stop"
+    )
+
+    /** 放開夾爪鍵：只有它就是正在動的那顆，才停。 */
+    fun gripperRelease(action: String) {
+        if (holdKey == gripperKeyOf(action)) stopHold()
+    }
+
+    /** STOP: every press sends `estop`, even when already stopped. The server ends any running hold (jog or gripper) itself. */
     fun estop() {
-        endJog()
+        endHold()
         send("estop")
     }
 
@@ -133,9 +160,9 @@ class TeleopLink {
         send("estop_reset")
     }
 
-    private fun endJog() {
-        jogging = false
-        jogKey = null
+    private fun endHold() {
+        holding = false
+        holdKey = null
         mainHandler.removeCallbacks(keepalive)
     }
 
@@ -166,11 +193,11 @@ class TeleopLink {
             }
             // the echo carries our own send time
             "test" -> latencyMs = System.currentTimeMillis() - msg.optLong("ts")
-            // The server ended our jog by itself (busy, estop, watchdog): stop keepalives.
+            // The server ended our hold by itself (busy, estop, watchdog): stop keepalives.
             "ack" -> {
                 val p = msg.optJSONObject("payload") ?: return
-                if (jogging && p.optLong("seq") == jogStartSeq && p.optString("status") == "rejected") {
-                    endJog()
+                if (holding && p.optLong("seq") == holdStartSeq && p.optString("status") == "rejected") {
+                    endHold()
                 }
             }
         }
@@ -221,7 +248,7 @@ class TeleopLink {
 
     
     private fun resetLinkState() {
-        endJog()
+        endHold()
         status = LinkStatus.Disconnected
         latencyMs = null
         stateAgeMs = null

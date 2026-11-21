@@ -125,9 +125,11 @@ fun ControlScreen(modifier: Modifier = Modifier) {
                     ModeTabs(selected = mode, onSelect = { mode = it })
                     when (mode) {
                         ControlMode.Buttons -> ButtonPad(
-                            jogKey = link.jogKey,
+                            holdKey = link.holdKey,
                             onJogPress = { axis, dir -> link.jogStart(axis, dir) },
                             onJogRelease = { axis, dir -> link.jogRelease(axis, dir) },
+                            onGripperPress = { link.gripperStart(it) },
+                            onGripperRelease = { link.gripperRelease(it) },
                             modifier = Modifier.weight(1f)
                         )
                         ControlMode.Camera -> CameraArea(Modifier.weight(1f))
@@ -397,9 +399,11 @@ private fun CameraAreaPreview() {
 // 按鈕模式：左邊十字、右邊 Up/Down、下排手腕和夾爪（排版參考網頁版按鈕模式）
 @Composable
 fun ButtonPad(
-    jogKey: String?,
+    holdKey: String?,
     onJogPress: (axis: String, dir: Int) -> Unit,
     onJogRelease: (axis: String, dir: Int) -> Unit,
+    onGripperPress: (action: String) -> Unit,
+    onGripperRelease: (action: String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     // 一顆方向鍵：axis/dir 決定按下送什麼，也決定什麼時候變藍
@@ -408,7 +412,7 @@ fun ButtonPad(
         JogButton(
             label = label,
             icon = icon,
-            active = jogKey == jogKeyOf(axis, dir),
+            active = holdKey == jogKeyOf(axis, dir),
             onPress = { onJogPress(axis, dir) },
             onRelease = { onJogRelease(axis, dir) },
             modifier = modifier
@@ -457,7 +461,7 @@ fun ButtonPad(
             }
         }
 
-        // 下排：手腕先排位置不接 server（另開票）；夾爪下一步接
+        // 下排：手腕先排位置，還不接 server；夾爪按住才動
         Row(
             modifier = Modifier.fillMaxWidth().height(72.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -465,8 +469,20 @@ fun ButtonPad(
             val cell = Modifier.weight(1f).fillMaxHeight()
             JogButton("Wrist ↑", Icons.Rounded.ArrowUpward, active = false, onPress = {}, onRelease = {}, modifier = cell)
             JogButton("Wrist ↓", Icons.Rounded.ArrowDownward, active = false, onPress = {}, onRelease = {}, modifier = cell)
-            JogButton("Open", Icons.Rounded.OpenInFull, active = false, onPress = {}, onRelease = {}, modifier = cell)
-            JogButton("Close", Icons.Rounded.CloseFullscreen, active = false, onPress = {}, onRelease = {}, modifier = cell)
+            JogButton(
+                "Open", Icons.Rounded.OpenInFull,
+                active = holdKey == gripperKeyOf("open"),
+                onPress = { onGripperPress("open") },
+                onRelease = { onGripperRelease("open") },
+                modifier = cell
+            )
+            JogButton(
+                "Close", Icons.Rounded.CloseFullscreen,
+                active = holdKey == gripperKeyOf("close"),
+                onPress = { onGripperPress("close") },
+                onRelease = { onGripperRelease("close") },
+                modifier = cell
+            )
         }
     }
 }
@@ -474,7 +490,7 @@ fun ButtonPad(
 @Preview(showBackground = true, backgroundColor = 0xFFF5F7FA, widthDp = 380, heightDp = 560)
 @Composable
 private fun ButtonPadPreview() {
-    ButtonPad(jogKey = "y-", onJogPress = { _, _ -> }, onJogRelease = { _, _ -> }, modifier = Modifier.padding(16.dp))
+    ButtonPad(holdKey = "y-", onJogPress = { _, _ -> }, onJogRelease = { _, _ -> }, onGripperPress = {}, onGripperRelease = {}, modifier = Modifier.padding(16.dp))
 }
 
 // ③ 底部三個按鈕（A-13 只做外觀，按了沒反應）
