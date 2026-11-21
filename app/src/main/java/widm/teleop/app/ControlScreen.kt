@@ -26,10 +26,19 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.PanTool
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.rounded.ArrowDownward
+import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.CloseFullscreen
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.OpenInFull
+import androidx.compose.material.icons.rounded.VerticalAlignBottom
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -78,7 +87,7 @@ enum class ControlMode(val label: String) {
     Camera("Camera")
 }
 
-// 分頁：由上到下 ① 頂部列 ② 按鈕模式／視角區 ③ 按鈕 ④ STOP
+// 整頁：由上到下 ① 頂部列 ② 分頁 ③ 按鈕模式／視角區 ④ 三個按鈕 ⑤ STOP
 @Composable
 fun ControlScreen(modifier: Modifier = Modifier) {
     var showConnection by rememberSaveable { mutableStateOf(false) }
@@ -115,7 +124,12 @@ fun ControlScreen(modifier: Modifier = Modifier) {
                 } else {
                     ModeTabs(selected = mode, onSelect = { mode = it })
                     when (mode) {
-                        ControlMode.Buttons -> ButtonPad(Modifier.weight(1f))
+                        ControlMode.Buttons -> ButtonPad(
+                            jogKey = link.jogKey,
+                            onJogPress = { axis, dir -> link.jogStart(axis, dir) },
+                            onJogRelease = { axis, dir -> link.jogRelease(axis, dir) },
+                            modifier = Modifier.weight(1f)
+                        )
                         ControlMode.Camera -> CameraArea(Modifier.weight(1f))
                     }
                     BottomButtons()
@@ -304,7 +318,7 @@ private fun JogButton(
     ) {
         Icon(icon, contentDescription = null, tint = contentColor, modifier = Modifier.size(24.dp))
         Spacer(Modifier.height(6.dp))
-        Text(label, color = contentColor, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+        Text(label, color = contentColor, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
     }
 }
 
@@ -380,17 +394,87 @@ private fun CameraAreaPreview() {
     CameraArea(Modifier.padding(16.dp).height(600.dp))
 }
 
-// 按鈕模式：十字、Up/Down、下排四顆（下一步再排）
+// 按鈕模式：左邊十字、右邊 Up/Down、下排手腕和夾爪（排版參考網頁版按鈕模式）
 @Composable
-fun ButtonPad(modifier: Modifier = Modifier) {
-    Box(
+fun ButtonPad(
+    jogKey: String?,
+    onJogPress: (axis: String, dir: Int) -> Unit,
+    onJogRelease: (axis: String, dir: Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    // 一顆方向鍵：axis/dir 決定按下送什麼，也決定什麼時候變藍
+    @Composable
+    fun Jog(label: String, icon: ImageVector, axis: String, dir: Int, modifier: Modifier) {
+        JogButton(
+            label = label,
+            icon = icon,
+            active = jogKey == jogKeyOf(axis, dir),
+            onPress = { onJogPress(axis, dir) },
+            onRelease = { onJogRelease(axis, dir) },
+            modifier = modifier
+        )
+    }
+
+    Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(CameraBg, RoundedCornerShape(12.dp)),
-        contentAlignment = Alignment.Center
+            .background(CameraBg, RoundedCornerShape(12.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("Button pad", color = TextOnDark)
+        Row(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // 左：十字，3×3 格子，四個角和正中間空著
+            Column(
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Spacer(Modifier.weight(1f))
+                    Jog("Forward", Icons.Rounded.KeyboardArrowUp, "y", -1, Modifier.weight(1f).fillMaxHeight())
+                    Spacer(Modifier.weight(1f))
+                }
+                Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Jog("Left", Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "x", 1, Modifier.weight(1f).fillMaxHeight())
+                    Spacer(Modifier.weight(1f))
+                    Jog("Right", Icons.AutoMirrored.Rounded.KeyboardArrowRight, "x", -1, Modifier.weight(1f).fillMaxHeight())
+                }
+                Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Spacer(Modifier.weight(1f))
+                    Jog("Back", Icons.Rounded.KeyboardArrowDown, "y", 1, Modifier.weight(1f).fillMaxHeight())
+                    Spacer(Modifier.weight(1f))
+                }
+            }
+            // 右：Up / Down
+            Column(
+                modifier = Modifier.width(88.dp).fillMaxHeight(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Jog("Up", Icons.Rounded.VerticalAlignTop, "z", 1, Modifier.weight(1f).fillMaxWidth())
+                Jog("Down", Icons.Rounded.VerticalAlignBottom, "z", -1, Modifier.weight(1f).fillMaxWidth())
+            }
+        }
+
+        // 下排：手腕先排位置不接 server（另開票）；夾爪下一步接
+        Row(
+            modifier = Modifier.fillMaxWidth().height(72.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            val cell = Modifier.weight(1f).fillMaxHeight()
+            JogButton("Wrist ↑", Icons.Rounded.ArrowUpward, active = false, onPress = {}, onRelease = {}, modifier = cell)
+            JogButton("Wrist ↓", Icons.Rounded.ArrowDownward, active = false, onPress = {}, onRelease = {}, modifier = cell)
+            JogButton("Open", Icons.Rounded.OpenInFull, active = false, onPress = {}, onRelease = {}, modifier = cell)
+            JogButton("Close", Icons.Rounded.CloseFullscreen, active = false, onPress = {}, onRelease = {}, modifier = cell)
+        }
     }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFFF5F7FA, widthDp = 380, heightDp = 560)
+@Composable
+private fun ButtonPadPreview() {
+    ButtonPad(jogKey = "y-", onJogPress = { _, _ -> }, onJogRelease = { _, _ -> }, modifier = Modifier.padding(16.dp))
 }
 
 // ③ 底部三個按鈕（A-13 只做外觀，按了沒反應）

@@ -24,6 +24,9 @@ private const val KEEPALIVE_MS = 133L         // server ends a jog 750 ms after 
 
 enum class LinkStatus { Disconnected, Connecting, Connected }
 
+/** 方向鍵的名字："z" + 1 → "z+"。TeleopLink 和畫面用同一個規則。 */
+fun jogKeyOf(axis: String, dir: Int) = axis + if (dir > 0) "+" else "-"
+
 /** Talks to the teleop server over one WebSocket. All work runs on the main thread. */
 class TeleopLink {
     var status by mutableStateOf(LinkStatus.Disconnected)
@@ -101,7 +104,7 @@ class TeleopLink {
     fun jogStart(axis: String, dir: Int) {
         if (status != LinkStatus.Connected || jogging) return
         jogging = true
-        jogKey = axis + if (dir > 0) "+" else "-"
+        jogKey = jogKeyOf(axis, dir)
         send("jog_start", JSONObject().put("axis", axis).put("dir", dir).put("step", "fine"))
         jogStartSeq = seq
         mainHandler.postDelayed(keepalive, KEEPALIVE_MS)
@@ -112,6 +115,11 @@ class TeleopLink {
         if (!jogging) return
         endJog()
         send("jog_stop")
+    }
+
+    /** 放開某一顆鍵：只有它就是正在動的那顆，才停。 */
+    fun jogRelease(axis: String, dir: Int) {
+        if (jogKey == jogKeyOf(axis, dir)) jogStop()
     }
 
     /** STOP: every press sends `estop`, even when already stopped. The server ends any running jog itself. */
