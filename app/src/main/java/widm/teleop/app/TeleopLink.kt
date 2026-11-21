@@ -1,0 +1,163 @@
+package widm.teleop.app
+
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
+import android.util.Log
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
+import org.json.JSONObject
+
+// Emulator: 10.0.2.2 is the computer running the emulator.
+const val DEFAULT_SERVER_URL = "ws://10.0.2.2:8767"
+private const val TAG = "TeleopLink"
+private const val TICK_MS = 500L              // send `test` twice a second
+private const val READY_TIMEOUT_MS = 5_000L   // welcome + first state within 5 s
+private const val SILENCE_TIMEOUT_MS = 3_000L // 3 s of silence = link lost
+
+enum class LinkStatus { Disconnected, Connecting, Connected }
+
+/** Talks to the teleop server over one WebSocket. All work runs on the main thread. */
+class TeleopLink {
+    var status by mutableStateOf(LinkStatus.Disconnected)
+        private set
+    var latencyMs by mutableStateOf<Long?>(null)   // last round trip of `test`
+        private set
+    var stateAgeMs by mutableStateOf<Long?>(null)  // time since the last `state`
+        private set
+
+    private val client = OkHttpClient()
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var socket: WebSocket? = null
+    private var seq = 0L
+    private var gotWelcome = false
+    private var connectStartedAt = 0L  
+    private var lastHeardAt = 0L       
+    private var lastStateAt = 0L       
+
+    // runs every TICK_MS while a socket is open
+    private val tick = object : Runnable {
+        override fun run() {
+            onTick()
+            if (socket != null) mainHandler.postDelayed(this, TICK_MS)
+        }
+    }
+
+    fun connect(url: String) {
+        close()
+        seq = 0
+        gotWelcome = false
+        status = LinkStatus.Connecting
+        connectStartedAt = SystemClock.elapsedRealtime()  
+        lastHeardAt = connectStartedAt                    
+        lastStateAt = 0L                                  
+        socket = client.newWebSocket(Request.Builder().url(url).build(), Listener())
+        mainHandler.postDelayed(tick, TICK_MS)            
+    }
+
+    fun close() {
+        mainHandler.removeCallbacks(tick)  
+        socket?.close(1000, "bye")
+        socket = null
+        resetLinkState()                   
+    }
+
+    fun send(type: String, payload: JSONObject = JSONObject()) {
+        val ws = socket ?: return
+        seq += 1
+        val msg = JSONObject()
+            .put("v", 1)
+            .put("type", type)
+            .put("ts", System.currentTimeMillis())
+            .put("seq", seq)
+            .put("payload", payload)
+        ws.send(msg.toString())
+        if (type != "test") Log.d(TAG, "-> $msg")  // don't flood Logcat with tests
+    }
+
+    
+    private fun onTick() {
+        val now = SystemClock.elapsedRealtime()
+        if (status == LinkStatus.Connecting && now - connectStartedAt > READY_TIMEOUT_MS) {
+            drop("not ready within 5 s")
+            return
+        }
+        if (now - lastHeardAt > SILENCE_TIMEOUT_MS) {
+            drop("no message for 3 s")
+            return
+        }
+        if (status == LinkStatus.Connected) send("test")
+        stateAgeMs = if (lastStateAt == 0L) null else now - lastStateAt
+    }
+
+    private fun handle(msg: JSONObject) {
+        lastHeardAt = SystemClock.elapsedRealtime()  
+        val type = msg.optString("type")
+        if (type != "state" && type != "test") Log.d(TAG, "<- $msg")
+        when (type) {
+            "welcome" -> gotWelcome = true
+            "state" -> {
+                lastStateAt = lastHeardAt  
+                if (gotWelcome) status = LinkStatus.Connected
+            }
+            // the echo carries our own send time
+            "test" -> latencyMs = System.currentTimeMillis() - msg.optLong("ts")
+        }
+    }
+
+    private inner class Listener : WebSocketListener() {
+        override fun onOpen(webSocket: WebSocket, response: Response) {
+            mainHandler.post {
+                if (socket !== webSocket) return@post
+                send("hello", JSONObject().put("client", "phone").put("name", "teleop-android/0.1"))
+            }
+        }
+
+        override fun onMessage(webSocket: WebSocket, text: String) {
+            mainHandler.post {
+                if (socket !== webSocket) return@post
+                handle(JSONObject(text))
+            }
+        }
+
+        override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+            webSocket.close(1000, null)
+        }
+
+        override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+            mainHandler.post { lost(webSocket, "closed $code") }
+        }
+
+        override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+            mainHandler.post { lost(webSocket, "failure $t") }
+        }
+    }
+
+    // we decide the link is dead and hang up
+    private fun drop(why: String) {
+        val ws = socket ?: return
+        lost(ws, why)
+        ws.cancel()
+    }
+
+    private fun lost(webSocket: WebSocket, why: String) {
+        if (socket !== webSocket) return
+        Log.w(TAG, "link lost: $why")
+        mainHandler.removeCallbacks(tick)  
+        socket = null
+        resetLinkState()                   
+    }
+
+    
+    private fun resetLinkState() {
+        status = LinkStatus.Disconnected
+        latencyMs = null
+        stateAgeMs = null
+    }
+}

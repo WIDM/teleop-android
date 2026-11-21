@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -71,6 +72,12 @@ private val HoldOrange = Color(0xFFF59E0B)
 fun ControlScreen(modifier: Modifier = Modifier) {
     var showConnection by rememberSaveable { mutableStateOf(false) }
     var eStopped by rememberSaveable { mutableStateOf(false) }
+    val link = remember { TeleopLink() }
+
+    DisposableEffect(link) {
+        link.connect(DEFAULT_SERVER_URL)
+        onDispose { link.close() }
+    }
 
     Column(
         modifier = modifier
@@ -84,7 +91,7 @@ fun ControlScreen(modifier: Modifier = Modifier) {
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                TopBar(eStopped = eStopped, onConnectedClick = {  if (!eStopped) showConnection = true })
+                TopBar(eStopped = eStopped, linkStatus = link.status, onConnectedClick = {  if (!eStopped) showConnection = true })
                 if (eStopped) {
                     EStopScreen(
                         onRelease = { eStopped = false },
@@ -110,6 +117,8 @@ fun ControlScreen(modifier: Modifier = Modifier) {
                 // 第 3 層：面板貼底
                 ConnectionPanel(
                     onClose = { showConnection = false },
+                    latencyMs = link.latencyMs,
+                    stateAgeMs = link.stateAgeMs,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .clickable(
@@ -135,7 +144,12 @@ private fun ControlScreenPreview() {
 
 // ① 頂部列：左邊 Standby，右邊 Connected（假資料，寫死）
 @Composable
-fun TopBar(modifier: Modifier = Modifier, eStopped: Boolean = false, onConnectedClick: () -> Unit) {
+fun TopBar(
+    modifier: Modifier = Modifier,
+    eStopped: Boolean = false,
+    linkStatus: LinkStatus,
+    onConnectedClick: () -> Unit
+) {
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -158,14 +172,19 @@ fun TopBar(modifier: Modifier = Modifier, eStopped: Boolean = false, onConnected
         // 把右邊的東西推到最右側
         Spacer(Modifier.weight(1f))
 
-        // 綠點 + Connected + 箭頭：包進一個可以點的小 Row
+        // 狀態點 + 連線狀態 + 箭頭
         Row(
             modifier = Modifier.clickable { onConnectedClick() },
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(Modifier.size(8.dp).background(ConnectedGreen, CircleShape))
+            val (dotColor, linkText) = when (linkStatus) {
+                LinkStatus.Connected -> ConnectedGreen to "Connected"
+                LinkStatus.Connecting -> HoldOrange to "Connecting…"
+                LinkStatus.Disconnected -> TextMuted to "Disconnected"
+            }
+            Box(Modifier.size(8.dp).background(dotColor, CircleShape))
             Spacer(Modifier.width(8.dp))
-            Text("Connected", color = TextDark, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Text(linkText, color = TextDark, fontSize = 14.sp, fontWeight = FontWeight.Medium)
             Spacer(Modifier.width(12.dp))
             Text("›", color = TextDark, fontSize = 18.sp)
         }
@@ -176,7 +195,7 @@ fun TopBar(modifier: Modifier = Modifier, eStopped: Boolean = false, onConnected
 @Preview(showBackground = true, backgroundColor = 0xFFF5F7FA)
 @Composable
 private fun TopBarPreview() {
-    TopBar(Modifier.padding(16.dp), onConnectedClick = {})
+    TopBar(Modifier.padding(16.dp), linkStatus = LinkStatus.Connected, onConnectedClick = {})
 }
 
 // ② 視角區：深藍底，上面貼 4 樣東西
@@ -350,8 +369,13 @@ private fun BottomPreview() {
 
 // ③ Connection 面板（假資料，寫死）
 @Composable
-fun ConnectionPanel(onClose: () -> Unit, modifier: Modifier = Modifier) {
-    var serverAddress by remember { mutableStateOf("192.168.x.x:8765") }
+fun ConnectionPanel(
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+    latencyMs: Long? = null,
+    stateAgeMs: Long? = null
+) {
+    var serverAddress by remember { mutableStateOf(DEFAULT_SERVER_URL.removePrefix("ws://")) }
 
     Column(
         modifier = modifier
@@ -362,8 +386,24 @@ fun ConnectionPanel(onClose: () -> Unit, modifier: Modifier = Modifier) {
     ) {
         Text("Connection", color = TextDark, fontSize = 22.sp, fontWeight = FontWeight.Bold)
 
-        StatusRow(label = "Latency", value = "80 ms, normal")
-        StatusRow(label = "Robot heartbeat", value = "Received just now")
+        StatusRow(
+            label = "Latency",
+            value = when {
+                latencyMs == null -> "—"
+                latencyMs < 400 -> "$latencyMs ms, normal"
+                else -> "$latencyMs ms, slow"
+            },
+            ok = latencyMs != null && latencyMs < 400
+        )
+        StatusRow(
+            label = "Robot heartbeat",
+            value = when {
+                stateAgeMs == null -> "Not received"
+                stateAgeMs < 1000 -> "Received just now"
+                else -> "${stateAgeMs / 1000} s ago"
+            },
+            ok = stateAgeMs != null && stateAgeMs < 1000
+        )
 
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("Server address", color = TextMuted, fontSize = 12.sp)
@@ -410,9 +450,9 @@ fun ConnectionPanel(onClose: () -> Unit, modifier: Modifier = Modifier) {
 
 // 綠點 + 粗體標籤 + 灰色說明
 @Composable
-private fun StatusRow(label: String, value: String) {
+private fun StatusRow(label: String, value: String, ok: Boolean = true) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(8.dp).background(ConnectedGreen, CircleShape))
+        Box(Modifier.size(8.dp).background(if (ok) ConnectedGreen else StopRed, CircleShape))
         Spacer(Modifier.width(10.dp))
         Text(label, color = TextDark, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.width(8.dp))
