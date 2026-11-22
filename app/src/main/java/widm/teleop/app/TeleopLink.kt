@@ -138,7 +138,7 @@ class TeleopLink {
 
     /** Start a hold: send [startType] with [payload], keep it alive, end it later with [stop]. */
     private fun beginHold(key: String, startType: String, payload: JSONObject, stop: String) {
-        if (status != LinkStatus.Connected || holding || resetting) return
+        if (status != LinkStatus.Connected || holding || resetting || serverEstop) return
         holding = true
         holdKey = key
         stopType = stop
