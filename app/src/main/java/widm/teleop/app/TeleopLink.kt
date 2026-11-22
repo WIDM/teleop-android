@@ -15,7 +15,8 @@ import okhttp3.WebSocketListener
 import org.json.JSONObject
 
 // Emulator: 10.0.2.2 is the computer running the emulator.
-const val DEFAULT_SERVER_URL = "ws://10.0.2.2:8767"
+// 8766 is the S4 server, reached through an SSH tunnel on that computer.
+const val DEFAULT_SERVER_URL = "ws://10.0.2.2:8766"
 private const val TAG = "TeleopLink"
 private const val TICK_MS = 500L              // send `test` twice a second
 private const val READY_TIMEOUT_MS = 5_000L   // welcome + first state within 5 s
