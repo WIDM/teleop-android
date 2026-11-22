@@ -12,6 +12,7 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import org.json.JSONException
 import org.json.JSONObject
 
 // Emulator: 10.0.2.2 is the computer running the emulator.
@@ -233,7 +234,7 @@ class TeleopLink {
             drop("not ready within 5 s")
             return
         }
-        if (now - lastHeardAt > SILENCE_TIMEOUT_MS) {
+        if (status == LinkStatus.Connected && now - lastHeardAt > SILENCE_TIMEOUT_MS) {
             drop("no message for 3 s")
             return
         }
@@ -275,7 +276,13 @@ class TeleopLink {
         override fun onMessage(webSocket: WebSocket, text: String) {
             mainHandler.post {
                 if (socket !== webSocket) return@post
-                handle(JSONObject(text))
+                val msg = try {
+                    JSONObject(text)
+                } catch (e: JSONException) {
+                    Log.w(TAG, "ignored malformed frame: $text")
+                    return@post
+                }
+                handle(msg)
             }
         }
 

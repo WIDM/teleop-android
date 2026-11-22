@@ -10,7 +10,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -59,6 +58,7 @@ import androidx.compose.material.icons.rounded.VerticalAlignTop
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
+import androidx.lifecycle.compose.LifecycleStartEffect
 
 // 顏色集中處，之後要改色只改這邊
 private val StandbyBlue = Color(0xFF2563EB)
@@ -95,9 +95,10 @@ fun ControlScreen(modifier: Modifier = Modifier) {
     var mode by rememberSaveable { mutableStateOf(ControlMode.Buttons) }
     val link = remember { TeleopLink() }
 
-    DisposableEffect(link) {
+    // Connect while the app is on screen; going to the background closes the link (and stops any hold).
+    LifecycleStartEffect(link) {
         link.connect(DEFAULT_SERVER_URL)
-        onDispose { link.close() }
+        onStopOrDispose { link.close() }
     }
 
     Column(
