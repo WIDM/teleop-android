@@ -55,6 +55,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
 import kotlinx.coroutines.launch
 import androidx.compose.material.icons.rounded.VerticalAlignTop
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
@@ -101,6 +102,15 @@ fun ControlScreen(modifier: Modifier = Modifier) {
         onStopOrDispose { link.close() }
     }
 
+    // The server can stop on its own (another client, a safety rule): show the E-stop screen then too.
+    // A counter, not the flag, so two quick changes within one frame still trigger it.
+    LaunchedEffect(link.serverEstopCount) {
+        if (link.serverEstopCount > 0) {
+            showConnection = false
+            eStopped = true
+        }
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -124,9 +134,12 @@ fun ControlScreen(modifier: Modifier = Modifier) {
                 )
                 if (eStopped) {
                     EStopScreen(
-                        onRelease = {
-                            link.estopReset()
-                            eStopped = false
+                        onRelease = { link.estopReset(onReleased = { eStopped = false }) },
+                        note = when {
+                            link.status != LinkStatus.Connected -> "No link. Still stopped."
+                            link.releasing -> "Releasing…"
+                            link.releaseRefused != null -> "Not released (${link.releaseRefused}). Hold again."
+                            else -> null
                         },
                         modifier = Modifier.weight(1f)
                     )
@@ -737,11 +750,15 @@ private fun ConnectionPanelPreview() {
 
 // ④ 急停頁：取代 CameraArea + BottomButtons
 @Composable
-fun EStopScreen(onRelease: () -> Unit, modifier: Modifier = Modifier) {
+fun EStopScreen(onRelease: () -> Unit, note: String?, modifier: Modifier = Modifier) {
     Column(modifier = modifier.fillMaxSize()) {
         EStopCard()
         Spacer(Modifier.weight(1f))
-        HoldToReleaseButton(onRelease = onRelease)    // 先寫死 30%，下一步改成真的
+        HoldToReleaseButton(onRelease = onRelease)
+        if (note != null) {
+            Spacer(Modifier.height(8.dp))
+            Text(note, color = EStopRed, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        }
         Spacer(Modifier.height(8.dp))
         Text(
             "Release early to cancel. A short buzz confirms release.",
@@ -826,5 +843,5 @@ private fun HoldToReleaseButton(onRelease: () -> Unit, modifier: Modifier = Modi
 @Preview(showBackground = true, backgroundColor = 0xFFF5F7FA, heightDp = 600)
 @Composable
 private fun EStopScreenPreview() {
-    EStopScreen(onRelease = {}, modifier = Modifier.padding(16.dp))
+    EStopScreen(onRelease = {}, note = null, modifier = Modifier.padding(16.dp))
 }

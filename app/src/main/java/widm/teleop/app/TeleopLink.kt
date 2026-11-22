@@ -5,6 +5,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import okhttp3.OkHttpClient
@@ -43,6 +44,19 @@ class TeleopLink {
         private set
     var stateAgeMs by mutableStateOf<Long?>(null)  // time since the last `state`
         private set
+
+    var serverEstop by mutableStateOf(false)   // the server's own E-stop latch, from `state`
+        private set
+
+    var serverEstopCount by mutableIntStateOf(0)   // +1 each time the server's E-stop turns on
+        private set
+
+    var releasing by mutableStateOf(false)               // estop_reset sent, waiting for its ack
+        private set
+    var releaseRefused by mutableStateOf<String?>(null)  // reason of the last refused release
+        private set
+    private var releaseSeq = 0L
+    private var onReleased: (() -> Unit)? = null
 
     private val client = OkHttpClient()
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -168,14 +182,26 @@ class TeleopLink {
 
     /** STOP: every press sends `estop`, even when already stopped. The server ends any running hold (jog or gripper) itself. */
     fun estop() {
+        endRelease()
+        releaseRefused = null
         endHold()
         endReset()
         send("estop")
     }
 
-    /** Hold-to-release finished: ask the server to release the stop and keep the scene. */
-    fun estopReset() {
+    /** Hold-to-release finished: ask the server to release the stop. The screen unlocks only when the server says ok. */
+    fun estopReset(onReleased: () -> Unit) {
+        if (status != LinkStatus.Connected || releasing) return
+        releaseRefused = null
         send("estop_reset")
+        releaseSeq = seq
+        releasing = true
+        this.onReleased = onReleased
+    }
+
+    private fun endRelease() {
+        releasing = false
+        onReleased = null
     }
 
     /** Top band held 2 s: put the scene back as it started. */
@@ -249,7 +275,10 @@ class TeleopLink {
         when (type) {
             "welcome" -> gotWelcome = true
             "state" -> {
-                lastStateAt = lastHeardAt  
+                lastStateAt = lastHeardAt
+                val estop = msg.optJSONObject("payload")?.optBoolean("estop") ?: false
+                if (estop && !serverEstop) serverEstopCount++
+                serverEstop = estop
                 if (gotWelcome) status = LinkStatus.Connected
             }
             // the echo carries our own send time
@@ -261,6 +290,18 @@ class TeleopLink {
                 val ackStatus = p.optString("status")
                 if (holding && ackSeq == holdStartSeq && ackStatus == "rejected") endHold()
                 if (resetting && ackSeq == resetSeq) onResetAck(ackStatus, p.optString("reason"))
+                if (releasing && ackSeq == releaseSeq) {
+                    val done = onReleased
+                    endRelease()
+                    val reason = p.optString("reason")
+                    // estop_not_active: the server was not stopped (e.g. our STOP never reached it), so unlocking is safe.
+                    if (ackStatus == "ok" || reason == "estop_not_active") {
+                        serverEstop = false
+                        done?.invoke()
+                    } else {
+                        releaseRefused = reason
+                    }
+                }
             }
         }
     }
@@ -318,8 +359,11 @@ class TeleopLink {
     private fun resetLinkState() {
         endHold()
         endReset()
+        endRelease()
         status = LinkStatus.Disconnected
         latencyMs = null
         stateAgeMs = null
+        serverEstop = false
+        releaseRefused = null
     }
 }
