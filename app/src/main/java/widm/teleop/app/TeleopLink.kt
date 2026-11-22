@@ -277,7 +277,10 @@ class TeleopLink {
             "state" -> {
                 lastStateAt = lastHeardAt
                 val estop = msg.optJSONObject("payload")?.optBoolean("estop") ?: false
-                if (estop && !serverEstop) serverEstopCount++
+                if (estop && !serverEstop) {
+                    serverEstopCount++
+                    if (holding) endHold()   // the server ends the hold itself (final ack `rejected estop`); stop keepalives now
+                }
                 serverEstop = estop
                 if (gotWelcome) status = LinkStatus.Connected
             }
